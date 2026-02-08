@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.10)
+project(KineticCore)
+set(CMAKE_CXX_STANDARD 17)
+add_subdirectory(vender/glfw)
+add_executable(KineticCore main.cpp)
+target_link_libraries(KineticCore glfw OpenGL32)
