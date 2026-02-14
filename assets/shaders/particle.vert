@@ -1,9 +1,14 @@
 #version 460 core
 layout (location = 0) in vec3 aPos;
 
+// 【新增】接收三大矩阵
+uniform mat4 model;
+uniform mat4 view;
+uniform mat4 projection;
+
 void main()
 {
-    // 这里的 gl_Position 是 OpenGL 的内置变量
-    // 它决定了 GPU 把这一把“沙子”（顶点）撒在屏幕的哪个位置
-    gl_Position = vec4(aPos, 1.0);
+    // 矩阵乘法顺序：投影 * 视图 * 模型 * 顶点
+    // 注意：顺序不能反！
+    gl_Position = projection * view * model * vec4(aPos, 1.0);
 }

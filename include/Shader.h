@@ -6,6 +6,7 @@
 // 防止头文件被多处引用时重复定义，导致编译错误。
 
 #include <glad/glad.h> // 必须包含 GLAD 才能用 OpenGL 类型
+#include <glm/glm.hpp>
 #include <string>
 #include <fstream>
 #include <sstream>
@@ -35,6 +36,8 @@ public:
     void setBool(const std::string& name, bool value) const;
     void setInt(const std::string& name, int value) const;
     void setFloat(const std::string& name, float value) const;
+    void setVec3(const std::string& name, const glm::vec3& value) const;
+    void setMat4(const std::string& name, const glm::mat4& mat) const;
 
 private:
     // 私有函数：用于检查编译/链接是否出错
