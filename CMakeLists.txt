@@ -20,6 +20,7 @@ set(HEADER_FILES
     "include/Camera.h"
     "vendor/glad/include/glad/glad.h"
     "vendor/glad/include/KHR/khrplatform.h"
+    "vendor/stb_image/stb_image.h"
 )
 
 set(SHADER_FILES
@@ -48,6 +49,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     "${CMAKE_SOURCE_DIR}/vendor/glad/include"
     "${CMAKE_SOURCE_DIR}/vendor/glfw/include"
     "${CMAKE_SOURCE_DIR}/vendor/glm"
+    "${CMAKE_SOURCE_DIR}/vendor/stb_image"
 )
 
 # 链接库
