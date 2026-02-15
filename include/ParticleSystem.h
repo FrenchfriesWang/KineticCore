@@ -2,9 +2,10 @@
 #define PARTICLESYSTEM_H
 
 #include <vector>
+#include <memory>
 #include <glad/glad.h>
 #include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
+
 
 #include "Shader.h"
 #include "Particle.h"
@@ -12,15 +13,17 @@
 class ParticleSystem
 {
 public:
-    // 构造函数：告诉系统最多支持多少个粒子
-    ParticleSystem(Shader shader, unsigned int amount);
+    ParticleSystem(Shader& shader, unsigned int amount); // 注意：shader 改为传引用，避免拷贝
+    ~ParticleSystem();
 
-    // 每帧调用：更新所有粒子的物理状态 (dt = deltaTime)
-    // objectVelocity 用于实现“粒子继承物体速度”的效果（可选）
-    // offset 用于新产生的粒子位置偏移
-    void Update(float dt, unsigned int newParticles, glm::vec2 offset = glm::vec2(0.0f, 0.0f));
+    //// 每帧调用：更新所有粒子的物理状态 (dt = deltaTime)
+    //// objectVelocity 用于实现“粒子继承物体速度”的效果（可选）
+    //// offset 用于新产生的粒子位置偏移
+    //void Update(float dt, unsigned int newParticles, glm::vec2 offset = glm::vec2(0.0f, 0.0f));
 
-    // 每帧调用：渲染所有活着的粒子
+    //// 每帧调用：渲染所有活着的粒子
+    //void Draw();
+    void Update(float dt, unsigned int newParticles, glm::vec2 offset);
     void Draw();
 
 private:
@@ -29,20 +32,17 @@ private:
     unsigned int amount;             // 粒子总数上限
 
     // --- 渲染资源 ---
-    Shader shader;
-    unsigned int VAO;
-    unsigned int textureID; // 暂时存一个纹理ID，未来可以用 ResourceManager
+    Shader& shader;
 
-    // --- 内部工具 ---
-    // 初始化粒子属性（当粒子死亡后复活时调用）
-    void respawnParticle(Particle& particle, glm::vec2 offset = glm::vec2(0.0f, 0.0f));
+   // 管理渲染状态
+    unsigned int quadVAO;
 
-    // 初始化 GPU 资源 (VAO/VBO)
-    void initRenderData();
+   // 内部初始化函数
+    void init();
 
-    unsigned int lastUsedParticle = 0;
-
+    // 查找未使用粒子的索引
     unsigned int firstUnusedParticle();
+    void respawnParticle(Particle& particle, glm::vec2 offset);
 };
 
 #endif

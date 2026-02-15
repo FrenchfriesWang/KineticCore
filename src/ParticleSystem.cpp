@@ -1,110 +1,84 @@
 #include "ParticleSystem.h"
-
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <random> // C++11 随机数库
 
 // 构造函数
-ParticleSystem::ParticleSystem(Shader shader, unsigned int amount)
-    : shader(shader), amount(amount), lastUsedParticle(0)
+ParticleSystem::ParticleSystem(Shader& shader, unsigned int amount)
+    : shader(shader), amount(amount)
 {
-    this->initRenderData();
+    this->init();
+}
 
-    // 预分配内存（对象池核心）
-    // reserve 不会创建对象，只是申请内存；resize 会创建对象
-    this->particles.resize(amount);
+// 析构函数 (别忘了清理 VAO)
+ParticleSystem::~ParticleSystem()
+{
+    glDeleteVertexArrays(1, &this->quadVAO);
 }
 
 void ParticleSystem::Update(float dt, unsigned int newParticles, glm::vec2 offset)
 {
-    // 1. 产生新雨滴
+    // 添加新粒子
     for (unsigned int i = 0; i < newParticles; ++i)
     {
         int unusedParticle = this->firstUnusedParticle();
         this->respawnParticle(this->particles[unusedParticle], offset);
     }
 
-    // 2. 更新雨滴
+    // 更新所有粒子状态 (纯数据计算，不涉及 OpenGL)
     for (unsigned int i = 0; i < this->amount; ++i)
     {
         Particle& p = this->particles[i];
+        p.Life -= dt;
         if (p.Life > 0.0f)
         {
-            p.Position += p.Velocity * dt;
-
-            // --- 循环机制 ---
-            // 假设地面是 Y = 0.0
-            // 如果掉到地下 (Y < -0.5)，直接瞬移回天空，不用 delete
-            if (p.Position.y < -0.5f)
-            {
-                this->respawnParticle(p, offset);
-            }
+            // [修改] 3D 物理运算
+            p.Position -= p.Velocity * dt;
+            p.Color.a -= dt * 2.5f;
         }
     }
 }
 
 void ParticleSystem::Draw()
 {
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE); // 加法混合让雨滴发亮
-    glDepthMask(GL_FALSE);
+    // 1. 设置混合模式 (为了防止粒子之间会有黑色方块遮挡，使用加法混合会更好看，或者按深度排序)
+    // 但既然我们要 void rain 风格，先用普通的混合
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE); // 暂时试一下 Additive，如果太亮再改回 ONE_MINUS_SRC_ALPHA
 
     this->shader.use();
 
-    for (Particle particle : this->particles)
+    // [关键] 绑定我们在 init 里定义的 VAO
+    glBindVertexArray(this->quadVAO);
+
+    for (const Particle& p : this->particles)
     {
-        if (particle.Life > 0.0f)
+        if (p.Life > 0.0f)
         {
-            // ==========================
-            // 1. 绘制真身 (Real Rain)
-            // ==========================
-            this->shader.setVec4("color", particle.Color);
+            // [修改] setVec2 -> setVec3
+            this->shader.setVec3("offset", p.Position);
+            this->shader.setVec4("color", p.Color);
 
-            glm::mat4 model = glm::mat4(1.0f);
-            model = glm::translate(model, particle.Position);
-            this->shader.setMat4("model", model);
-
-            glBindVertexArray(this->VAO);
-            glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
-
-            // ==========================
-            // 2. 绘制倒影 (Reflection)
-            // ==========================
-            // 只有当雨滴接近地面时才画倒影(可选优化)，或者全部画
-            // 这里为了简单，全部画，但把颜色调暗
-
-            // 倒影颜色：亮度减半，模拟地面吸收
-            this->shader.setVec4("color", particle.Color * 0.3f);
-
-            glm::mat4 reflectModel = glm::mat4(1.0f);
-
-            // 核心数学：镜像位置 (x, -y, z)
-            // 假设地面是 Y=0。如果雨滴在 Y=5，倒影就在 Y=-5
-            glm::vec3 reflectPos = particle.Position;
-            reflectPos.y = -reflectPos.y;
-
-            reflectModel = glm::translate(reflectModel, reflectPos);
-            // 这一步可选：如果雨滴纹理有方向（比如上面尖下面圆），倒影也需要上下翻转
-            // reflectModel = glm::scale(reflectModel, glm::vec3(1, -1, 1)); 
-
-            this->shader.setMat4("model", reflectModel);
-
-            // 复用同一个 VAO 绘制
             glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
         }
     }
 
-    glDepthMask(GL_TRUE);
+    // 恢复默认混合模式 (可选)
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 }
 
-void ParticleSystem::initRenderData()
+void ParticleSystem::init()
 {
-    // 配置雨滴模型 (Quad)
-        // 形状：极细(0.015)、极长(0.3) -> 形成线条感
+    // 1. 初始化粒子池
+    this->particles.resize(this->amount); // 使用 resize 预分配对象
+
+    // 2. [关键] 把原本 main.cpp 里的顶点定义搬到这里！
+    // -------------------------------------------------------
     float vertices[] = {
-        // Pos                 // UV
-        -0.015f, -0.3f, 0.0f,   0.0f, 0.0f,
-         0.015f, -0.3f, 0.0f,   1.0f, 0.0f,
-         0.015f,  0.3f, 0.0f,   1.0f, 1.0f,
-        -0.015f,  0.3f, 0.0f,   0.0f, 1.0f
+        // 位置(x,y,z)      // 纹理坐标(u,v)
+        -0.05f, -0.05f, 0.0f,   0.0f, 0.0f,
+         0.05f, -0.05f, 0.0f,   1.0f, 0.0f,
+         0.05f,  0.05f, 0.0f,   1.0f, 1.0f,
+        -0.05f,  0.05f, 0.0f,   0.0f, 1.0f
     };
     unsigned int indices[] = {
         0, 1, 2,
@@ -112,11 +86,11 @@ void ParticleSystem::initRenderData()
     };
 
     unsigned int VBO, EBO;
-    glGenVertexArrays(1, &this->VAO);
+    glGenVertexArrays(1, &this->quadVAO);
     glGenBuffers(1, &VBO);
     glGenBuffers(1, &EBO);
 
-    glBindVertexArray(this->VAO);
+    glBindVertexArray(this->quadVAO);
 
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
     glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
@@ -124,78 +98,49 @@ void ParticleSystem::initRenderData()
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
 
-    // 属性 0: Pos
+    // 属性 0: 位置
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
-    // 属性 1: UV
+    // 属性 1: 纹理坐标
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
     glEnableVertexAttribArray(1);
 
-    glBindVertexArray(0);
+    glBindVertexArray(0); // 解绑
+
+    // 清理 VBO/EBO (VAO 已经记录了状态，VBO 可以删掉或者留着，这里简单处理不删也行，因为类销毁时不管它们)
+    // -------------------------------------------------------
 }
 
-// 工业级查找算法：Last Used Optimization
+// 查找算法：Last Used Optimization
 unsigned int ParticleSystem::firstUnusedParticle()
 {
-    // 1. 从上次最后一次使用的位置往后找
-    for (unsigned int i = lastUsedParticle; i < amount; ++i) {
-        if (particles[i].Life <= 0.0f) {
-            lastUsedParticle = i;
+    // 这里简单遍历，你可以加上 lastUsedParticle 优化
+    for (unsigned int i = 0; i < this->amount; ++i) {
+        if (this->particles[i].Life <= 0.0f) {
             return i;
         }
     }
-    // 2. 如果后面满了，从头开始找 (线性查找)
-    for (unsigned int i = 0; i < lastUsedParticle; ++i) {
-        if (particles[i].Life <= 0.0f) {
-            lastUsedParticle = i;
-            return i;
-        }
-    }
-    // 3. 全满了：覆盖第一个（或者直接不生成，这里选择覆盖第0个保证即使满了也有新粒子）
-    lastUsedParticle = 0;
-    return 0;
+    return 0; // 这里的覆盖逻辑可以优化
 }
 
 void ParticleSystem::respawnParticle(Particle& particle, glm::vec2 offset)
 {
-    //// 使用 std::random_device 和 std::mt19937 生成高质量随机数
-    //static std::random_device rd;
-    //static std::mt19937 gen(rd());
-    //static std::uniform_real_distribution<float> randomPosOffset(-0.5f, 0.5f);
-    //static std::uniform_real_distribution<float> randomColor(0.5f, 1.0f);
-    //static std::uniform_real_distribution<float> randomVelocity(-0.5f, 0.5f);
+    // 随机生成 X 和 Z 轴的偏移 (水平面)
+    float randomX = ((rand() % 100) - 50) / 10.0f;
+    float randomZ = ((rand() % 100) - 50) / 10.0f;
+    float rColor = 0.5f + ((rand() % 100) / 100.0f);
 
-    //// 随机偏移位置
-    //float rColor = 0.5f + ((rand() % 100) / 100.0f);
+    // [关键修复]
+    // 1. 我们把 2D 的 offset (玩家位置) 映射到 3D 空间
+    //    玩家的 x -> 世界的 x
+    //    玩家的 y -> 世界的 z (因为在 OpenGL 中xz平面是地平)
 
-    //// 重置粒子属性
-    //particle.Position = glm::vec3(offset.x + randomPosOffset(gen), offset.y + randomPosOffset(gen), offset.y + randomPosOffset(gen)); // 这里简单处理，稍后根据需求调整 Z 轴
+    // 2. Y 轴固定在空中 (比如 5.0f 高空)
+    particle.Position = glm::vec3(randomX + offset.x, 5.0f, randomZ + offset.y);
 
-    //// 让颜色稍微随机一点
-    //particle.Color = glm::vec4(rColor, rColor, rColor, 1.0f);
+    particle.Color = glm::vec4(rColor, rColor, rColor, 1.0f);
+    particle.Life = 1.0f;
 
-    //particle.Life = 1.0f; // 活 1.0 单位时间
-
-    //// 给个向上的初速度，加上一点随机扰动
-    //particle.Velocity = glm::vec3(randomVelocity(gen), 1.5f, randomVelocity(gen));
-
-
-    static std::random_device rd;
-    static std::mt19937 gen(rd());
-
-    // 范围：覆盖 XZ 平面 (-15 到 15)，高度 Y 固定在 15 (天空)
-    static std::uniform_real_distribution<float> randomX(-15.0f, 15.0f);
-    static std::uniform_real_distribution<float> randomZ(-15.0f, 5.0f); // 稍微偏向相机前方
-    static std::uniform_real_distribution<float> randomY(15.0f, 25.0f); // 初始在很高的地方
-
-    particle.Position = glm::vec3(randomX(gen), randomY(gen), randomZ(gen));
-
-    // 颜色：半透明的白/蓝 (Alpha 0.5)
-    particle.Color = glm::vec4(0.8f, 0.85f, 1.0f, 0.5f);
-
-    particle.Life = 999.0f; // 不死之身，手动循环
-
-    // 速度：极快向下 (-18 到 -12)
-    static std::uniform_real_distribution<float> randomSpeedY(-18.0f, -12.0f);
-    particle.Velocity = glm::vec3(0.0f, randomSpeedY(gen), 0.0f);
+    // [关键修复] 速度也是 3D 的，雨是向下落 (Y轴负方向)
+    particle.Velocity = glm::vec3(0.0f, 5.0f, 0.0f); // 这里的数值根据你的dt和单位可能需要调整
 }

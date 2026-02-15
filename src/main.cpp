@@ -1,6 +1,7 @@
 ﻿#include <iostream>
-#include <cmath>
-#include <algorithm>
+#include <vector>
+#include <memory>
+
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 
@@ -12,15 +13,22 @@
 #include "Camera.h"
 #include "ParticleSystem.h"
 
-// STB_IMAGE_IMPLEMENTATION 宏会让库将实现代码编译进这个 cpp 文件
-// 通常在大型项目中，会专门建立一个 src/stb_impl.cpp 来放这个宏，以加快编译速度
-// 这里为了单文件连贯性，暂且放在 main.cpp 顶部
-#define STB_IMAGE_IMPLEMENTATION
-#include <stb_image.h>
+// 函数声明
+void framebuffer_size_callback(GLFWwindow* window, int width, int height);
+void processInput(GLFWwindow* window);
+void mouse_callback(GLFWwindow* window, double xpos, double ypos);
+void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
+unsigned int generateProceduralTexture();
 
-// 全局变量配置
-const unsigned int SCR_WIDTH = 800;
-const unsigned int SCR_HEIGHT = 600;
+//// STB_IMAGE_IMPLEMENTATION 宏会让库将实现代码编译进这个 cpp 文件
+//// 通常在大型项目中，会专门建立一个 src/stb_impl.cpp 来放这个宏，以加快编译速度
+//// 这里为了单文件连贯性，暂且放在 main.cpp 顶部
+//#define STB_IMAGE_IMPLEMENTATION
+//#include <stb_image.h>
+
+// 屏幕设置
+const unsigned int SCR_WIDTH = 1920;
+const unsigned int SCR_HEIGHT = 1080;
 
 // 相机实例
 Camera camera(glm::vec3(0.0f, 0.0f, 3.0f));
@@ -34,16 +42,13 @@ bool firstMouse = true;
 float deltaTime = 0.0f;
 float lastFrame = 0.0f;
 
-void framebuffer_size_callback(GLFWwindow* window, int width, int height);
-void mouse_callback(GLFWwindow* window, double xpos, double ypos);
-void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
-void processInput(GLFWwindow* window);
-unsigned int loadTexture(const char* path);
-unsigned int createSoftTexture();
+
 
 int main()
 {
-	// --- 初始化 GLFW (保持不变) ---
+	// ------------------------------
+	// 1. 初始化 GLFW
+	// ------------------------------
 	glfwInit();
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
@@ -63,72 +68,48 @@ int main()
 	glfwSetCursorPosCallback(window, mouse_callback);
 	glfwSetScrollCallback(window, scroll_callback);
 
-	// 隐藏光标并捕捉 (FPS 游戏模式)
+	// 捕获鼠标，且隐藏光标
 	glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
-
-	// 初始化 GLAD
+	// ------------------------------
+	// 2. 初始化 GLAD
+	// ------------------------------
 	if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
 	{
 		std::cout << "Failed to initialize GLAD" << std::endl;
 		return -1;
 	}
 
-	// 3. 开启深度测试 (3D 渲染必须开启，否则后面的面会挡住前面的面)
+	// ------------------------------
+	// 3. 配置全局 OpenGL 状态
+    // ------------------------------
+	// 开启深度测试 (3D 渲染必须开启，否则后面的面会挡住前面的面)
 	glEnable(GL_DEPTH_TEST);
 
-	// 构建 Shader
-	// 自动读取文件、编译、链接、检错。
-	// 注意路径：这里是相对于 VS "工作目录" (D:\Dev\KineticCore) 的路径
-	Shader ourShader("assets/shaders/particle.vert", "assets/shaders/particle.frag");
 
-	// 4. 定义粒子模型 (Quad - 四边形)
-		// 格式: [位置 x, y, z] [纹理 u, v]
-	float vertices[] = {
-		-0.05f, -0.05f, 0.0f,   0.0f, 0.0f,
-		 0.05f, -0.05f, 0.0f,   1.0f, 0.0f,
-		 0.05f,  0.05f, 0.0f,   1.0f, 1.0f,
-		-0.05f,  0.05f, 0.0f,   0.0f, 1.0f
-	};
-	unsigned int indices[] = {
-		0, 1, 3, // 第一个三角形
-		1, 2, 3  // 第二个三角形
-	};
-
-	unsigned int VBO, VAO, EBO;
-	glGenVertexArrays(1, &VAO);
-	glGenBuffers(1, &VBO);
-	glGenBuffers(1, &EBO);
-
-	glBindVertexArray(VAO);
-
-	glBindBuffer(GL_ARRAY_BUFFER, VBO);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
-
-	// 属性 0: Pos (Stride = 5 * float)
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
-	glEnableVertexAttribArray(0);
-
-	// 属性 1: UV (Offset = 3 * float)
-	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
-	glEnableVertexAttribArray(1);
-
-	// 5. 加载纹理
-	//unsigned int texture1 = loadTexture("assets/textures/texture.png");
-	unsigned int texture1 = createSoftTexture();
-
-	// Shader 配置
-	ourShader.use();
-	ourShader.setInt("particleTexture", 0); // 告诉 Shader 采样器属于 0 号纹理单元
-
-	ParticleSystem* particleSystem = new ParticleSystem(ourShader, 4000); 
+	// 混合模式调整：从 GL_ONE (叠加发光) 改为 标准 Alpha 混合
+	// 让雨滴看起来更像水，而不是发光的激光束
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
 
+	// ------------------------------
+	// 4. 初始化资源 (使用智能指针)
+	// ------------------------------
 
-	// 渲染循环
+    // 使用 std::unique_ptr 管理 Shader
+	auto shader = std::make_unique<Shader>("assets/shaders/particle.vert", "assets/shaders/particle.frag");
+
+	// 使用 std::unique_ptr 管理 ParticleSystem
+	// 5000 个粒子作为起步
+	auto particleSystem = std::make_unique<ParticleSystem>(*shader, 10000);
+
+	// 生成纹理
+	unsigned int textureID = generateProceduralTexture();
+
+	// ------------------------------
+	// 5. 渲染循环
+	// ------------------------------
 	while (!glfwWindowShouldClose(window))
 	{
 		// 计算 DeltaTime 
@@ -139,84 +120,89 @@ int main()
 		// 输入处理
 		processInput(window);
 
-		// ==========================================
-		// 1. 逻辑更新 (Update Physics)
-		// ==========================================
-		// 参数1: dt
-		// 参数2: 每帧产生的新粒子数量 (2个)
-		// 参数3: 产生位置的偏移量 (这里用 vec2(0,0)，也就是在世界中心发射)
-		particleSystem->Update(deltaTime, 80, glm::vec2(0.0f, 0.0f)); // 每次生成 80 个
-
-		// ==========================================
-		// 2. 渲染 (Render)
-		// ==========================================
-		glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+		// 清屏 (背景色设为深色，接近纯黑的虚空感)
+		glClearColor(0.05f, 0.05f, 0.05f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-		// --- A. 绘制场景中的其他物体 (如果有) ---
-		// (比如之前的那个大纹理方块，这里可以先注释掉，专心看粒子，或者留着作为背景)
+		// 激活着色器
+		shader->use();
+		shader->setInt("particleTexture", 0);
 
-		// 绑定相机的 View/Projection 矩阵给 Shader
-		// 因为 ParticleSystem 复用了同一个 Shader，所以这里设置一次即可
-		ourShader.use();
+		// 设置摄像机矩阵
 		glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
+		shader->setMat4("projection", projection);
 		glm::mat4 view = camera.GetViewMatrix();
-		ourShader.setMat4("projection", projection);
-		ourShader.setMat4("view", view);
+		shader->setMat4("view", view);
 
-		// --- B. 绘制粒子 ---
-		// 必须在设置完 projection/view 之后调用
-		particleSystem->Draw();
+		// 绑定纹理
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, textureID);
 
+		// [重要] 分离更新与渲染
+		// 目前你的 ParticleSystem::Update 和 Draw 还是耦合在一起的 (都在 Update 里或者混着)
+		// 这一步我们先把调用方式改得像样一点，下一阶段再去拆解 ParticleSystem 类
+
+		// 这里的 offset 暂时没用，先传个 0
+		particleSystem->Update(deltaTime, 2, glm::vec2(0.0f, 0.0f));
+		particleSystem->Draw(); // 这一步在你的类里虽然包含在Update里了，但为了语义清晰，以后要拆出来
+
+
+		// 交换缓冲 & 轮询事件
 		glfwSwapBuffers(window);
 		glfwPollEvents();
 	}
 
-	delete particleSystem;
+	// ------------------------------
+	// 6. 资源释放
+	// ------------------------------
+	// unique_ptr 会在这里自动释放 particleSystem 和 shader，无需 delete
+	// 只需处理 OpenGL 的资源
+	glDeleteTextures(1, &textureID);
+	glfwTerminate();
 	return 0;
 }
 
-// 纹理加载函数
-unsigned int loadTexture(const char* path)
-{
-	unsigned int textureID;
-	glGenTextures(1, &textureID);
-
-	int width, height, nrComponents;
-	// 翻转 Y 轴 (OpenGL 纹理坐标系原点在左下角，而大部分图片数据从左上角开始)
-	stbi_set_flip_vertically_on_load(true);
-
-	unsigned char* data = stbi_load(path, &width, &height, &nrComponents, 0);
-	if (data)
-	{
-		GLenum format;
-		if (nrComponents == 1)
-			format = GL_RED;
-		else if (nrComponents == 3)
-			format = GL_RGB;
-		else if (nrComponents == 4)
-			format = GL_RGBA;
-
-		glBindTexture(GL_TEXTURE_2D, textureID);
-		glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
-		glGenerateMipmap(GL_TEXTURE_2D); // 生成多级渐远纹理 (Mipmaps)
-
-		// 纹理参数设置
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-		stbi_image_free(data); // 释放 CPU 内存
-	}
-	else
-	{
-		std::cout << "Texture failed to load at path: " << path << std::endl;
-		stbi_image_free(data);
-	}
-
-	return textureID;
-}
+//// 纹理加载函数
+//unsigned int loadTexture(const char* path)
+//{
+//	unsigned int textureID;
+//	glGenTextures(1, &textureID);
+//
+//	int width, height, nrComponents;
+//	// 翻转 Y 轴 (OpenGL 纹理坐标系原点在左下角，而大部分图片数据从左上角开始)
+//	stbi_set_flip_vertically_on_load(true);
+//
+//	unsigned char* data = stbi_load(path, &width, &height, &nrComponents, 0);
+//	if (data)
+//	{
+//		GLenum format;
+//		if (nrComponents == 1)
+//			format = GL_RED;
+//		else if (nrComponents == 3)
+//			format = GL_RGB;
+//		else if (nrComponents == 4)
+//			format = GL_RGBA;
+//
+//		glBindTexture(GL_TEXTURE_2D, textureID);
+//		glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
+//		glGenerateMipmap(GL_TEXTURE_2D); // 生成多级渐远纹理 (Mipmaps)
+//
+//		// 纹理参数设置
+//		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+//		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+//		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+//		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+//
+//		stbi_image_free(data); // 释放 CPU 内存
+//	}
+//	else
+//	{
+//		std::cout << "Texture failed to load at path: " << path << std::endl;
+//		stbi_image_free(data);
+//	}
+//
+//	return textureID;
+//}
 
 void processInput(GLFWwindow* window)
 {
@@ -237,7 +223,8 @@ void processInput(GLFWwindow* window)
 		camera.ProcessKeyboard(CameraMovement::UP, deltaTime);
 	if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)
 		camera.ProcessKeyboard(CameraMovement::DOWN, deltaTime);
-
+	// [补充建议]：在这里加一行锁定高度的代码，虽然我还没写进 Camera 类，但你可以先硬编码
+	// camera.Position.y = 1.7f;
 }
 
 void mouse_callback(GLFWwindow* window, double xposIn, double yposIn) {
@@ -269,42 +256,46 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 }
 
 
-unsigned int createSoftTexture()
+// 程序化生成雨滴纹理
+unsigned int generateProceduralTexture()
 {
-	const int width = 64;
-	const int height = 64;
-	unsigned char data[width * height * 4];
+	unsigned int textureID;
+	glGenTextures(1, &textureID);
 
-	for (int y = 0; y < height; ++y)
+	int width = 64;
+	int height = 64;
+
+	// [修改] 使用 std::vector 自动管理内存，防止 new 后忘记 delete
+	std::vector<unsigned char> data(width * height * 4);
+
+	for (int y = 0; y < height; y++)
 	{
-		for (int x = 0; x < width; ++x)
+		for (int x = 0; x < width; x++)
 		{
-			// 归一化坐标 (-1 到 1)
-			float nx = (float)x / (width - 1) * 2.0f - 1.0f;
-			float ny = (float)y / (height - 1) * 2.0f - 1.0f;
-			float dist = sqrt(nx * nx + ny * ny);
+			// 简单的径向渐变，中心白，边缘透
+			float centerX = width / 2.0f;
+			float centerY = height / 2.0f;
+			float distance = sqrt(pow(x - centerX, 2) + pow(y - centerY, 2));
+			float maxDist = width / 2.0f;
+			float alpha = 1.0f - (distance / maxDist);
+			if (alpha < 0.0f) alpha = 0.0f;
 
-			// 核心算法：3次幂衰减，让光点中心很亮，边缘很透
-			// 这样拉伸后才像水滴，而不是长条方块
-			float alpha = std::max(0.0f, 1.0f - dist);
+			// 稍微让 Alpha 曲线更陡峭一点，粒子边缘更锐利
 			alpha = pow(alpha, 3.0f);
 
 			int index = (y * width + x) * 4;
-			// 雨滴颜色：带一点点冷色调（蓝白）
-			data[index + 0] = 220; // R
-			data[index + 1] = 220; // G
+			data[index + 0] = 200; // R (微蓝)
+			data[index + 1] = 200; // G
 			data[index + 2] = 255; // B
 			data[index + 3] = (unsigned char)(alpha * 255); // A
 		}
 	}
 
-	unsigned int textureID;
-	glGenTextures(1, &textureID);
 	glBindTexture(GL_TEXTURE_2D, textureID);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+	// 使用 data.data() 获取指针
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data.data());
 	glGenerateMipmap(GL_TEXTURE_2D);
 
-	// 必须用 GL_CLAMP_TO_EDGE，否则雨滴边缘可能会有奇怪的线条
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
