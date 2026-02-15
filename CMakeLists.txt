@@ -12,12 +12,15 @@ set(SOURCE_FILES
     "src/main.cpp"
     "src/Shader.cpp"
     "src/Camera.cpp"
+    "src/ParticleSystem.cpp"
     "vendor/glad/src/glad.c"
 )
 
 set(HEADER_FILES
     "include/Shader.h"
     "include/Camera.h"
+    "include/Particle.h"
+    "include/ParticleSystem.h"
     "vendor/glad/include/glad/glad.h"
     "vendor/glad/include/KHR/khrplatform.h"
     "vendor/stb_image/stb_image.h"
