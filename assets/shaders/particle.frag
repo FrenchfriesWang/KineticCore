@@ -8,10 +8,15 @@ uniform sampler2D particleTexture;
 
 void main()
 {
-    // [调试修改]
-    // 1. 暂时屏蔽纹理采样（防止纹理加载失败导致黑屏）
-    // 2. 暂时屏蔽 discard（防止全被当成透明的扔掉）
+    // 采样纹理
+    vec4 texColor = texture(particleTexture, TexCoord);
     
-    // 强制输出：高亮白色，带一点点透明
-    FragColor = vec4(1.0, 1.0, 1.0, 0.8); 
+    // --- 关键修正：透明度剔除 ---
+    // 如果纹理 alpha 值太低（透明区域），直接丢弃该像素
+    // 解决“黑色方块”或“丑陋边缘”问题
+    if(texColor.a < 0.1)
+        discard;
+
+    // 混合纹理颜色和粒子颜色
+    FragColor = texColor * ParticleColor;
 }
