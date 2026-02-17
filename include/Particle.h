@@ -3,11 +3,17 @@
 
 #include <glm/glm.hpp>
 
+enum class ParticleState {
+    Falling,
+    Splashing
+};
+
 struct Particle {
-    glm::vec3 Position; // 位置
-    glm::vec3 Velocity; // 速度
-    glm::vec4 Color;    // 颜色
-    float Life;         // 剩余寿命 (用于状态机或渐变)
+    glm::vec3 Position; 
+    glm::vec3 Velocity; 
+    glm::vec4 Color;    
+    float Life;         
+    ParticleState State; 
 
     // 默认构造函数初始化
     Particle()

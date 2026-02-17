@@ -23,9 +23,10 @@ void ParticleSystem::init()
         Particle p;
         // 初始位置：在空中随机分布 (X: -20~20, Y: 5~20, Z: -20~20)
         p.Position = glm::vec3(randomFloat(-20.0f, 20.0f), randomFloat(5.0f, 25.0f), randomFloat(-20.0f, 20.0f));
-        p.Velocity = glm::vec3(0.0f, -5.0f, 0.0f); // 初始下落速度
+        p.Velocity = glm::vec3(0.0f, randomFloat(-10.0f, -20.0f), 0.0f);
         p.Color = glm::vec4(1.0f);
-        p.Life = randomFloat(0.5f, 1.0f);
+        p.Life = 1.0f;
+        p.State = ParticleState::Falling;
         particles.push_back(p);
     }
 
@@ -45,7 +46,7 @@ void ParticleSystem::init()
 
     glGenVertexArrays(1, &this->VAO);
     glGenBuffers(1, &this->quadVBO);
-    glGenBuffers(1, &this->instanceVBO); // 关键：这是存位置偏移量的 Buffer
+    glGenBuffers(1, &this->instanceVBO); // 这是存位置偏移量的 Buffer
 
     glBindVertexArray(this->VAO);
 
@@ -60,11 +61,11 @@ void ParticleSystem::init()
     // 设置 Instance VBO (初始为空，大小预留)
     glBindBuffer(GL_ARRAY_BUFFER, this->instanceVBO);
     // 预分配内存，GL_STREAM_DRAW 表示我们会频繁修改它
-    glBufferData(GL_ARRAY_BUFFER, this->amount * sizeof(glm::vec3), NULL, GL_STREAM_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, this->amount * sizeof(glm::vec4), NULL, GL_STREAM_DRAW);
 
     // 属性 2: 实例偏移 (vec3) -> 对应 Shader 里的 layout (location = 2) in vec3 offset;
     glEnableVertexAttribArray(2);
-    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), (void*)0);
+    glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, sizeof(glm::vec4), (void*)0);
 
     // [核弹级代码] 这一行告诉 OpenGL：这个属性是每个 Instance 读一次，而不是每个 Vertex 读一次
     // 如果没有这一行，所有粒子都会叠在一起！
@@ -80,43 +81,69 @@ void ParticleSystem::Update(float dt, unsigned int newParticles, glm::vec2 offse
     {
         Particle& p = this->particles[i];
 
-        // 物理逻辑：简单的重力下落
-        p.Velocity.y -= 9.8f * dt * 0.1f; // 稍微给点重力加速度
-        p.Position += p.Velocity * dt;
-
-        // 边界检查：如果掉到地面以下 (Y < -2.0)
-        if (p.Position.y < -2.0f)
+        if (p.State == ParticleState::Falling)
         {
-            // 重置到天上
-            p.Position = glm::vec3(randomFloat(-20.0f, 20.0f), randomFloat(10.0f, 25.0f), randomFloat(-20.0f, 20.0f));
-            p.Velocity = glm::vec3(0.0f, randomFloat(-5.0f, -10.0f), 0.0f); // 随机初速度
+            // 重力加速
+            p.Velocity.y -= 9.8f * dt;
+            p.Position += p.Velocity * dt;
+
+            // 撞地检测 (假设地面在 Y = 0)
+            if (p.Position.y <= 0.0f)
+            {
+                p.Position.y = 0.05f; // 稍微浮起一点，避免Z-fighting
+                p.State = ParticleState::Splashing;
+                p.Velocity = glm::vec3(0.0f); // 停在地面
+                p.Life = 0.15f; // 涟漪只存活 0.15 秒
+            }
+        }
+        else if (p.State == ParticleState::Splashing)
+        {
+            // 涟漪逻辑：倒计时
+            p.Life -= dt;
+            if (p.Life <= 0.0f)
+            {
+                // 重生回天空
+                p.State = ParticleState::Falling;
+                p.Position = glm::vec3(randomFloat(-20.0f, 20.0f), randomFloat(10.0f, 30.0f), randomFloat(-20.0f, 20.0f));
+                p.Velocity = glm::vec3(0.0f, randomFloat(-10.0f, -20.0f), 0.0f);
+            }
         }
     }
 }
 
 void ParticleSystem::Draw()
 {
-    // 1. 收集这一帧所有粒子的位置
-    // 我们需要把 std::vector<Particle> 里的 Position 提取到一个连续的数组里传给 GPU
-    std::vector<glm::vec3> positionData;
-    positionData.reserve(this->amount);
+    std::vector<glm::vec4> instanceData;
+    instanceData.reserve(this->amount);
 
     for (const auto& p : this->particles)
     {
-        positionData.push_back(p.Position);
+        float wComponent = 1.0f;
+
+        if (p.State == ParticleState::Falling)
+        {
+            // 雨滴状态：w > 0，代表垂直拉伸系数
+            wComponent = 1.0f;
+        }
+        else if (p.State == ParticleState::Splashing)
+        {
+            // 水花状态：w < 0，我们要传回当前的 Life
+            // 加负号是为了让 Shader 知道它是水花
+            // 比如 Life 是 0.15，传过去就是 -0.15
+            // 避免 -0.0 (虽然浮点数有 -0，但为了安全我们给个极小偏移)
+            wComponent = -p.Life;
+            if (wComponent == 0.0f) wComponent = -0.0001f;
+        }
+
+        instanceData.push_back(glm::vec4(p.Position, wComponent));
     }
 
-    // 2. 更新 GPU 显存
     glBindBuffer(GL_ARRAY_BUFFER, this->instanceVBO);
-    // 使用 glBufferSubData 或者 glBufferData (orphaning) 更新数据
-    // 这里直接覆盖整个 Buffer，虽然不是极致优化，但最稳
-    glBufferData(GL_ARRAY_BUFFER, positionData.size() * sizeof(glm::vec3), positionData.data(), GL_STREAM_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, instanceData.size() * sizeof(glm::vec4), instanceData.data(), GL_STREAM_DRAW);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 
-    // 3. 绘制调用
     this->shader.use();
     glBindVertexArray(this->VAO);
-    // 使用 Instanced 绘制：画 positionData.size() 个四边形
-    glDrawArraysInstanced(GL_TRIANGLES, 0, 6, static_cast<GLsizei>(positionData.size()));
+    glDrawArraysInstanced(GL_TRIANGLES, 0, 6, static_cast<GLsizei>(instanceData.size()));
     glBindVertexArray(0);
 }
