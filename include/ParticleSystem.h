@@ -34,8 +34,13 @@ private:
     unsigned int quadVBO;     // 存储四边形顶点
     unsigned int instanceVBO; // 存储每个粒子的位置偏移
 
+
     // 初始化函数
     void init();
+
+
+    unsigned int lastUsedParticle = 0; // 记录上次找到的位置，优化搜索
+    unsigned int firstUnusedParticle();
 };
 
 #endif

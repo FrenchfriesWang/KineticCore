@@ -76,36 +76,68 @@ void ParticleSystem::init()
 
 void ParticleSystem::Update(float dt, unsigned int newParticles, glm::vec2 offset)
 {
-    // 更新所有粒子
-    for (unsigned int i = 0; i < this->amount; ++i)
+    // 1. 每一帧激活新的粒子
+    for (unsigned int i = 0; i < newParticles; ++i)
     {
-        Particle& p = this->particles[i];
+        int unusedParticle = firstUnusedParticle();
+        Particle& p = particles[unusedParticle];
 
-        if (p.State == ParticleState::Falling)
+        // 如果粒子是未激活状态 (Life <= 0)，让它出生
+        if (p.Life <= 0.0f)
         {
-            // 重力加速
-            p.Velocity.y -= 9.8f * dt;
-            p.Position += p.Velocity * dt;
+            // 生成在相机周围 x, z
+            float rX = ((rand() % 200) - 100) / 5.0f; // -20 到 +20
+            float rZ = ((rand() % 200) - 100) / 5.0f;
+            float startY = 20.0f; // 高空生成
 
-            // 撞地检测 (假设地面在 Y = 0)
-            if (p.Position.y <= 0.0f)
-            {
-                p.Position.y = 0.05f; // 稍微浮起一点，避免Z-fighting
-                p.State = ParticleState::Splashing;
-                p.Velocity = glm::vec3(0.0f); // 停在地面
-                p.Life = 0.15f; // 涟漪只存活 0.15 秒
-            }
+            p.Position = glm::vec3(offset.x + rX, startY, offset.y + rZ);
+            p.Color = glm::vec4(0.8f, 0.85f, 1.0f, 1.0f); // 雨滴颜色
+
+            // 只要赋值 > 0 即可，因为在 Falling 状态下我们要锁住它不减少
+            p.Life = 1.0f;
+
+            p.Velocity = glm::vec3(0.0f, -20.0f, 0.0f); // 高速下落
+            p.State = ParticleState::Falling;
         }
-        else if (p.State == ParticleState::Splashing)
+    }
+
+    // 2. 更新所有粒子
+    for (unsigned int i = 0; i < amount; ++i)
+    {
+        Particle& p = particles[i];
+
+        // 只处理活着的粒子
+        if (p.Life > 0.0f)
         {
-            // 涟漪逻辑：倒计时
-            p.Life -= dt;
-            if (p.Life <= 0.0f)
+            // --- 状态：下落中 ---
+            if (p.State == ParticleState::Falling)
             {
-                // 重生回天空
-                p.State = ParticleState::Falling;
-                p.Position = glm::vec3(randomFloat(-20.0f, 20.0f), randomFloat(10.0f, 30.0f), randomFloat(-20.0f, 20.0f));
-                p.Velocity = glm::vec3(0.0f, randomFloat(-10.0f, -20.0f), 0.0f);
+                // 更新物理位置
+                p.Position += p.Velocity * dt;
+
+                // 【核心修正】这里绝对不写 p.Life -= dt;
+                // 让雨滴一直活到撞地为止
+
+                // --- 高度检测 (触地逻辑) ---
+                // 假设地面高度是 -2.0f
+                if (p.Position.y < 0.0f)
+                {
+                    // 触地了，直接重置回天空 (无限循环)
+                    float rX = ((rand() % 200) - 100) / 5.0f;
+                    float rZ = ((rand() % 200) - 100) / 5.0f;
+
+                    // 重新回到上方
+                    p.Position = glm::vec3(offset.x + rX, 20.0f, offset.y + rZ);
+
+                    // 保持 Life > 0，保持 Falling 状态
+                }
+            }
+            // --- 状态：溅射中 (这是你未来做水花预留的) ---
+            else if (p.State == ParticleState::Splashing)
+            {
+                // 只有水花才需要随时间消失
+                p.Life -= dt;
+                p.Color.a -= dt * 2.0f; // 快速变淡
             }
         }
     }
@@ -146,4 +178,28 @@ void ParticleSystem::Draw()
     glBindVertexArray(this->VAO);
     glDrawArraysInstanced(GL_TRIANGLES, 0, 6, static_cast<GLsizei>(instanceData.size()));
     glBindVertexArray(0);
+}
+
+
+unsigned int ParticleSystem::firstUnusedParticle()
+{
+    // 1. 从上次最后使用的位置开始向后搜索
+    for (unsigned int i = lastUsedParticle; i < amount; ++i) {
+        if (particles[i].Life <= 0.0f) {
+            lastUsedParticle = i;
+            return i;
+        }
+    }
+
+    // 2. 如果后面没找到，从头开始搜索
+    for (unsigned int i = 0; i < lastUsedParticle; ++i) {
+        if (particles[i].Life <= 0.0f) {
+            lastUsedParticle = i;
+            return i;
+        }
+    }
+
+    // 3. 如果所有粒子都活着，就覆盖第一个（或者覆盖第0个）
+    lastUsedParticle = 0;
+    return 0;
 }

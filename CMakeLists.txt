@@ -29,6 +29,8 @@ set(HEADER_FILES
 set(SHADER_FILES
     "assets/shaders/particle.vert"
     "assets/shaders/particle.frag"
+    "assets/shaders/ground.vert"
+    "assets/shaders/ground.frag"
 )
 
 

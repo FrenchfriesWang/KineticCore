@@ -2,6 +2,9 @@
 #include <vector>
 #include <memory>
 
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
+
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 
@@ -19,7 +22,7 @@ void processInput(GLFWwindow* window);
 void mouse_callback(GLFWwindow* window, double xpos, double ypos);
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
 unsigned int generateProceduralTexture();
-
+unsigned int loadTexture(const char* path);
 //// STB_IMAGE_IMPLEMENTATION 宏会让库将实现代码编译进这个 cpp 文件
 //// 通常在大型项目中，会专门建立一个 src/stb_impl.cpp 来放这个宏，以加快编译速度
 //// 这里为了单文件连贯性，暂且放在 main.cpp 顶部
@@ -31,7 +34,7 @@ const unsigned int SCR_WIDTH = 1920;
 const unsigned int SCR_HEIGHT = 1080;
 
 // 相机实例
-Camera camera(glm::vec3(0.0f, 0.0f, 3.0f));
+Camera camera(glm::vec3(0.0f, 1.7f, 3.0f));
 
 // 鼠标控制相关
 float lastX = SCR_WIDTH / 2.0f;
@@ -107,6 +110,61 @@ int main()
 	// 生成纹理
 	unsigned int textureID = generateProceduralTexture();
 
+
+
+
+	// ---------------------------------------------------------
+	// Ground Initialization (局部变量，栈内存管理数据，智能指针管理Shader)
+	// ---------------------------------------------------------
+
+	// 1. 地面 Shader (保持 unique_ptr 风格)
+	auto groundShader = std::make_unique<Shader>("assets/shaders/ground.vert", "assets/shaders/ground.frag");
+
+	// 2. 地面顶点数据 (移入 main 内部，拒绝全局污染)
+	float planeVertices[] = {
+		// positions            // normals         // texcoords
+		 25.0f, 0.0f,  25.0f,   0.0f, 1.0f, 0.0f,  25.0f,  0.0f,
+		-25.0f, 0.0f,  25.0f,   0.0f, 1.0f, 0.0f,   0.0f,  0.0f,
+		-25.0f, 0.0f, -25.0f,   0.0f, 1.0f, 0.0f,   0.0f, 25.0f,
+
+		 25.0f, 0.0f,  25.0f,   0.0f, 1.0f, 0.0f,  25.0f,  0.0f,
+		-25.0f, 0.0f, -25.0f,   0.0f, 1.0f, 0.0f,   0.0f, 25.0f,
+		 25.0f, 0.0f, -25.0f,   0.0f, 1.0f, 0.0f,  25.0f, 25.0f
+	};
+
+	// 3. 配置 OpenGL 对象
+	unsigned int planeVAO, planeVBO;
+	glGenVertexArrays(1, &planeVAO);
+	glGenBuffers(1, &planeVBO);
+	glBindVertexArray(planeVAO);
+	glBindBuffer(GL_ARRAY_BUFFER, planeVBO);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(planeVertices), planeVertices, GL_STATIC_DRAW);
+
+	glEnableVertexAttribArray(0);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
+	glEnableVertexAttribArray(1);
+	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(3 * sizeof(float)));
+	glEnableVertexAttribArray(2);
+	glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(6 * sizeof(float)));
+	glBindVertexArray(0);
+
+	// 4. 加载 PBR 纹理 (直接调用你已有的 loadTexture)
+	unsigned int groundDiff = loadTexture("assets/textures/cobblestone_ground_diff.jpg");
+	unsigned int groundNorm = loadTexture("assets/textures/cobblestone_ground_nor_gl.jpg");
+	unsigned int groundRough = loadTexture("assets/textures/cobblestone_ground_rough.jpg");
+	unsigned int groundAO = loadTexture("assets/textures/cobblestone_ground_ao.jpg");
+	unsigned int groundDisp = loadTexture("assets/textures/cobblestone_ground_disp.jpg");
+
+	// 5. 预设 Shader 纹理单元
+	groundShader->use();
+	groundShader->setInt("albedoMap", 0);
+	groundShader->setInt("normalMap", 1);
+	groundShader->setInt("roughnessMap", 2);
+	groundShader->setInt("aoMap", 3);
+	groundShader->setInt("dispMap", 4);
+
+
+
 	// ------------------------------
 	// 5. 渲染循环
 	// ------------------------------
@@ -124,22 +182,51 @@ int main()
 		glClearColor(0.05f, 0.05f, 0.05f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+		// --- 1. 统一计算矩阵 (供所有 Shader 使用) ---
+		glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
+		glm::mat4 view = camera.GetViewMatrix();
+		glm::mat4 model = glm::mat4(1.0f);
+
+		// --- 2. 渲染地面 (PBR Wetness) ---
+		groundShader->use();
+		groundShader->setFloat("time", static_cast<float>(glfwGetTime()));
+		groundShader->setMat4("projection", projection);
+		groundShader->setMat4("view", view);
+		groundShader->setMat4("model", model);
+
+		// 设置光照与湿润参数
+		groundShader->setVec3("viewPos", camera.Position);
+		groundShader->setVec3("lightPos", glm::vec3(0.0f, 10.0f, 0.0f));
+		groundShader->setVec3("lightColor", glm::vec3(1.0f, 1.0f, 1.0f));
+		groundShader->setFloat("wetness", 0.45f); // <--- 设为 1.0 满湿润度，强制看效果
+
+		// 绑定纹理
+		glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, groundDiff);
+		glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, groundNorm);
+		glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, groundRough);
+		glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D, groundAO);
+		glActiveTexture(GL_TEXTURE4); glBindTexture(GL_TEXTURE_2D, groundDisp);
+
+		glBindVertexArray(planeVAO);
+		glDrawArrays(GL_TRIANGLES, 0, 6);
+		glBindVertexArray(0);
+
+		// --- 3. 渲染粒子 (Transparent Object 放在最后) ---
+
 		// 激活着色器
 		shader->use();
 		shader->setInt("particleTexture", 0);
-
 		// 设置摄像机矩阵
-		glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
 		shader->setMat4("projection", projection);
-		glm::mat4 view = camera.GetViewMatrix();
 		shader->setMat4("view", view);
 
-		// 绑定纹理
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, textureID);
 
+
+		// 传递 Camera XZ 坐标以实现跟随
 		// [重要] 分离更新与渲染
-		// 目前你的 ParticleSystem::Update 和 Draw 还是耦合在一起的 (都在 Update 里或者混着)
+		// ParticleSystem::Update 和 Draw 还是耦合在一起的 (都在 Update 里或者混着)
 		// 这一步我们先把调用方式改得像样一点，下一阶段再去拆解 ParticleSystem 类
 
 		// 这里的 offset 暂时没用，先传个 0
@@ -303,3 +390,52 @@ unsigned int generateProceduralTexture()
 
 	return textureID;
 }
+
+
+unsigned int loadTexture(char const* path)
+{
+	unsigned int textureID;
+	glGenTextures(1, &textureID);
+
+	int width, height, nrComponents;
+	unsigned char* data = stbi_load(path, &width, &height, &nrComponents, 0);
+	if (data)
+	{
+		GLenum format;
+		if (nrComponents == 1) format = GL_RED;
+		else if (nrComponents == 3) format = GL_RGB;
+		else if (nrComponents == 4) format = GL_RGBA;
+
+		glBindTexture(GL_TEXTURE_2D, textureID);
+		glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
+		glGenerateMipmap(GL_TEXTURE_2D);
+
+		// 设置重复平铺 (GL_REPEAT)
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+		stbi_image_free(data);
+	}
+	else
+	{
+		std::cout << "Texture failed to load at path: " << path << std::endl;
+		stbi_image_free(data);
+	}
+
+	return textureID;
+}
+
+// 地面顶点数据 (Pos, Normal, TexCoords)
+// 放在 y = -2.0 的位置，这也是雨滴重置的高度
+float planeVertices[] = {
+	// positions            // normals         // texcoords
+	 25.0f, -2.0f,  25.0f,  0.0f, 1.0f, 0.0f,  25.0f,  0.0f,
+	-25.0f, -2.0f,  25.0f,  0.0f, 1.0f, 0.0f,   0.0f,  0.0f,
+	-25.0f, -2.0f, -25.0f,  0.0f, 1.0f, 0.0f,   0.0f, 25.0f,
+
+	 25.0f, -2.0f,  25.0f,  0.0f, 1.0f, 0.0f,  25.0f,  0.0f,
+	-25.0f, -2.0f, -25.0f,  0.0f, 1.0f, 0.0f,   0.0f, 25.0f,
+	 25.0f, -2.0f, -25.0f,  0.0f, 1.0f, 0.0f,  25.0f, 25.0f
+};
