@@ -34,7 +34,7 @@ const unsigned int SCR_WIDTH = 1920;
 const unsigned int SCR_HEIGHT = 1080;
 
 // 相机实例
-Camera camera(glm::vec3(0.0f, 1.7f, 3.0f));
+Camera camera(glm::vec3(0.0f, 1.6f, 2.7f));
 
 // 鼠标控制相关
 float lastX = SCR_WIDTH / 2.0f;

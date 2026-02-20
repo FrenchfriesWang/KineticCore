@@ -96,39 +96,59 @@ void main()
     // 最终法线 = 混合石头凹凸与真正的水面
     vec3 finalNormalMapValue = normalize(mix(normalMapValue, finalWaterNormal, puddleMask));
 
-    // 5. TBN 转换
+// 5. TBN 转换
     vec3 T = vec3(1.0, 0.0, 0.0);
     vec3 B = vec3(0.0, 0.0, 1.0);
     vec3 N_geom = vec3(0.0, 1.0, 0.0);
     mat3 TBN = mat3(T, B, N_geom);
     vec3 N = normalize(TBN * finalNormalMapValue); 
 
-    // 6. 光照计算
-    vec3 lightDir = normalize(vec3(0.2, 0.5, 0.5)); 
-    vec3 lightColor = vec3(1.0, 1.0, 1.2) * 2.0;
+    // --- [核心修改 1：重置路灯位置与强度 (解决过曝)] ---
+    // 把路灯往前移 (Z=-4.0)，高度稍微降低到 5.0。
+    // 摄像机出生在 Z=3.0，刚好能看到路灯在前方水面上拉出的绝美长条倒影！
+    vec3 lightPos = vec3(0.0, 5.0, -4.0);
+    // 强度从 8.0 降到 4.5，避免中心吃光亮瞎眼
+    vec3 lightColor = vec3(0.8, 0.9, 1.0) * 4.5; 
 
+    vec3 lightDir = normalize(lightPos - FragPos);
     vec3 V = normalize(viewPos - FragPos);
     vec3 H = normalize(lightDir + V);
 
+    // --- [核心修改 2：加快物理光照衰减] ---
+    float dist = length(lightPos - FragPos);
+    // 加大二次项系数，让光在物理上衰减得更快，配合缩小的舞台
+    float attenuation = 1.0 / (1.0 + 0.09 * dist + 0.032 * dist * dist);
+
+    // --- [核心修改 3：缩小舞台并对齐光源 (掩盖重复贴图)] ---
+    // [关键思路] 遮罩的中心不再是原点 (0,0)，而是路灯在地面的投影点！
+    float distFromLight = length(FragPos.xz - lightPos.xz);
+    // 舞台大幅缩小！半径 2.5 米内全亮，到 7.0 米处彻底变成深渊 (之前是 5~12)
+    // 这样同屏最多只能看到 2~3 个重复贴图，肉眼极难察觉规律
+    float spotlightMask = 1.0 - smoothstep(2.5, 6.0, distFromLight);
+
+    // 漫反射
     float diff = max(dot(N, lightDir), 0.0);
     vec3 diffuse = diff * finalAlbedo * lightColor;
 
+    // 高光
     float shininess = (1.0 - finalRoughness) * 200.0; 
     float spec = pow(max(dot(N, H), 0.0), shininess);
     
     float F0 = mix(0.04, 0.02, puddleMask); 
     float fresnel = F0 + (1.0 - F0) * pow(1.0 - max(dot(V, N), 0.0), 5.0);
     
-    // 积水处高光乘数放大
     vec3 specular = lightColor * spec * (fresnel + (1.0 - finalRoughness) * 0.5) * mix(1.0, 5.0, puddleMask); 
 
     // 环境光与假天空倒影
-    vec3 baseAmbient = vec3(0.02) * finalAlbedo * ao;
+    vec3 baseAmbient = vec3(0.01) * finalAlbedo * ao;
     vec3 fakeSkyReflect = vec3(0.02, 0.03, 0.05) * puddleMask; 
     vec3 ambient = baseAmbient + fakeSkyReflect;
 
-    vec3 color = ambient + diffuse + specular;
+    // 应用衰减与遮罩
+    vec3 color = ambient + (diffuse + specular) * attenuation;
+    color *= spotlightMask;
 
+    // 色调映射与 Gamma 校正
     color = color / (color + vec3(1.0));
     color = pow(color, vec3(1.0/2.2));
 
