@@ -105,7 +105,7 @@ int main()
 
 	// 使用 std::unique_ptr 管理 ParticleSystem
 	// 5000 个粒子作为起步
-	auto particleSystem = std::make_unique<ParticleSystem>(*shader, 10000);
+	auto particleSystem = std::make_unique<ParticleSystem>(*shader, 25000);
 
 	// 生成纹理
 	unsigned int textureID = generateProceduralTexture();
@@ -230,8 +230,8 @@ int main()
 		// 这一步我们先把调用方式改得像样一点，下一阶段再去拆解 ParticleSystem 类
 
 		// 这里的 offset 暂时没用，先传个 0
-		particleSystem->Update(deltaTime, 2, glm::vec2(0.0f, 0.0f));
-		particleSystem->Draw(); // 这一步在你的类里虽然包含在Update里了，但为了语义清晰，以后要拆出来
+		particleSystem->Update(deltaTime, glm::vec2(camera.Position.x, camera.Position.z));
+		particleSystem->Draw(camera.Position); // 这一步在你的类里虽然包含在Update里了，但为了语义清晰，以后要拆出来
 
 
 		// 交换缓冲 & 轮询事件

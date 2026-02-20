@@ -2,21 +2,15 @@
 out vec4 FragColor;
 
 in vec2 TexCoord;
-in vec4 ParticleColor;
-
 uniform sampler2D particleTexture;
 
 void main()
 {
-    // 采样纹理
     vec4 texColor = texture(particleTexture, TexCoord);
     
-    // --- 关键修正：透明度剔除 ---
-    // 如果纹理 alpha 值太低（透明区域），直接丢弃该像素
-    // 解决“黑色方块”或“丑陋边缘”问题
-    if(texColor.a < 0.1)
-        discard;
+    // 剔除透明边缘，防止方块感
+    if(texColor.a < 0.1) discard;
 
-    // 混合纹理颜色和粒子颜色
-    FragColor = texColor * ParticleColor;
+    // 纯白色拉丝雨滴，略带一点透明度 (0.6)，让它们交叠时更自然
+    FragColor = vec4(1.0, 1.0, 1.0, texColor.a * 0.7); // 加入背景后可以0.06
 }
