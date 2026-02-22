@@ -16,6 +16,8 @@
 #include "Camera.h"
 #include "ParticleSystem.h"
 
+#include <cmath>
+
 // 函数声明
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void processInput(GLFWwindow* window);
@@ -23,6 +25,7 @@ void mouse_callback(GLFWwindow* window, double xpos, double ypos);
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
 unsigned int generateProceduralTexture();
 unsigned int loadTexture(const char* path);
+unsigned int generateLightConeVAO();
 //// STB_IMAGE_IMPLEMENTATION 宏会让库将实现代码编译进这个 cpp 文件
 //// 通常在大型项目中，会专门建立一个 src/stb_impl.cpp 来放这个宏，以加快编译速度
 //// 这里为了单文件连贯性，暂且放在 main.cpp 顶部
@@ -34,7 +37,7 @@ const unsigned int SCR_WIDTH = 1920;
 const unsigned int SCR_HEIGHT = 1080;
 
 // 相机实例
-Camera camera(glm::vec3(0.0f, 1.6f, 2.7f));
+Camera camera(glm::vec3(0.0f, 1.8f, 6.7f), glm::vec3(0.0f, 1.0f, 0.0f), YAW, -40.0f);
 
 // 鼠标控制相关
 float lastX = SCR_WIDTH / 2.0f;
@@ -119,17 +122,21 @@ int main()
 
 	// 1. 地面 Shader (保持 unique_ptr 风格)
 	auto groundShader = std::make_unique<Shader>("assets/shaders/ground.vert", "assets/shaders/ground.frag");
+	auto coneShader = std::make_unique<Shader>("assets/shaders/lightcone.vert", "assets/shaders/lightcone.frag");
+	unsigned int coneVAO = generateLightConeVAO();
 
 	// 2. 地面顶点数据 (移入 main 内部，拒绝全局污染)
 	float planeVertices[] = {
+		// 逆时针连接 (CCW)
 		// positions            // normals         // texcoords
-		 25.0f, 0.0f,  25.0f,   0.0f, 1.0f, 0.0f,  25.0f,  0.0f,
-		-25.0f, 0.0f,  25.0f,   0.0f, 1.0f, 0.0f,   0.0f,  0.0f,
-		-25.0f, 0.0f, -25.0f,   0.0f, 1.0f, 0.0f,   0.0f, 25.0f,
+		// 第一个三角形
+		-10.0f, 0.0f,  10.0f,   0.0f, 1.0f, 0.0f,   0.0f,  0.0f,
+		 10.0f, 0.0f,  10.0f,   0.0f, 1.0f, 0.0f,  10.0f,  0.0f,
+		 10.0f, 0.0f, -10.0f,   0.0f, 1.0f, 0.0f,  10.0f, 10.0f,
 
-		 25.0f, 0.0f,  25.0f,   0.0f, 1.0f, 0.0f,  25.0f,  0.0f,
-		-25.0f, 0.0f, -25.0f,   0.0f, 1.0f, 0.0f,   0.0f, 25.0f,
-		 25.0f, 0.0f, -25.0f,   0.0f, 1.0f, 0.0f,  25.0f, 25.0f
+		 10.0f, 0.0f, -10.0f,   0.0f, 1.0f, 0.0f,  10.0f, 10.0f,
+		-10.0f, 0.0f, -10.0f,   0.0f, 1.0f, 0.0f,   0.0f, 10.0f,
+		-10.0f, 0.0f,  10.0f,   0.0f, 1.0f, 0.0f,   0.0f,  0.0f
 	};
 
 	// 3. 配置 OpenGL 对象
@@ -196,9 +203,9 @@ int main()
 
 		// 设置光照与湿润参数
 		groundShader->setVec3("viewPos", camera.Position);
-		groundShader->setVec3("lightPos", glm::vec3(0.0f, 10.0f, 0.0f));
-		groundShader->setVec3("lightColor", glm::vec3(1.0f, 1.0f, 1.0f));
-		groundShader->setFloat("wetness", 0.45f); // <--- 设为 1.0 满湿润度，强制看效果
+		groundShader->setVec3("lightPos", glm::vec3(0.0f, 9.0f, 0.0f));
+		groundShader->setVec3("lightColor", glm::vec3(0.8f, 0.9f, 1.0f) * 4.5f);
+		groundShader->setFloat("wetness", 0.45f); 
 
 		// 绑定纹理
 		glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, groundDiff);
@@ -212,7 +219,7 @@ int main()
 		glBindVertexArray(0);
 
 		// --- 3. 渲染粒子 (Transparent Object 放在最后) ---
-
+		glDepthMask(GL_FALSE);
 		// 激活着色器
 		shader->use();
 		shader->setInt("particleTexture", 0);
@@ -232,6 +239,46 @@ int main()
 		// 这里的 offset 暂时没用，先传个 0
 		particleSystem->Update(deltaTime, glm::vec2(camera.Position.x, camera.Position.z));
 		particleSystem->Draw(camera.Position); // 这一步在你的类里虽然包含在Update里了，但为了语义清晰，以后要拆出来
+
+
+
+
+		// --- 4. 渲染体积光锥 (Additive Blending) ---
+		// 开启叠加混合模式：源颜色 * 源Alpha + 目标颜色 * 1
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+		// 【关键】关闭深度写入！让光锥不要遮挡任何后面的东西，彻底告别 z-fighting 和奇怪的深度剔除
+		glDepthMask(GL_FALSE);
+
+		// [修改这里] 开启背面剔除，只看前面，彻底消灭多层重影！
+		glEnable(GL_CULL_FACE);
+		glCullFace(GL_FRONT); // 只渲染内侧，彻底消灭重影
+
+
+		coneShader->use();
+		coneShader->setMat4("projection", projection);
+		coneShader->setMat4("view", view);
+		coneShader->setFloat("time", static_cast<float>(glfwGetTime()));
+
+		// 把模型矩阵平移到路灯真实的世界坐标 (0, 5, -4)
+		glm::mat4 coneModel = glm::mat4(1.0f);
+		coneModel = glm::translate(coneModel, glm::vec3(0.0f, 9.0f, 0.0f)); // 模型平移到 7.5米
+		coneShader->setMat4("model", coneModel);
+
+		coneShader->setVec3("lightPos", glm::vec3(0.0f, 9.0f, 0.0f));
+		// 这里颜色再乘以一个系数，你可以自己调，控制体积光的浑浊度
+		coneShader->setVec3("lightColor", glm::vec3(0.8f, 0.9f, 1.0f) * 1.5f);
+		coneShader->setVec3("cameraPos", camera.Position);
+
+		glBindVertexArray(coneVAO);
+		glDrawArrays(GL_TRIANGLES, 0, 72 * 12);
+		glBindVertexArray(0);
+
+		// --- 恢复渲染状态 (这步极其重要，不要影响下一帧) ---
+		glDepthMask(GL_TRUE);
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+		glCullFace(GL_BACK);
+
+
 
 
 		// 交换缓冲 & 轮询事件
@@ -427,15 +474,57 @@ unsigned int loadTexture(char const* path)
 	return textureID;
 }
 
-// 地面顶点数据 (Pos, Normal, TexCoords)
-// 放在 y = -2.0 的位置，这也是雨滴重置的高度
-float planeVertices[] = {
-	// positions            // normals         // texcoords
-	 25.0f, -2.0f,  25.0f,  0.0f, 1.0f, 0.0f,  25.0f,  0.0f,
-	-25.0f, -2.0f,  25.0f,  0.0f, 1.0f, 0.0f,   0.0f,  0.0f,
-	-25.0f, -2.0f, -25.0f,  0.0f, 1.0f, 0.0f,   0.0f, 25.0f,
 
-	 25.0f, -2.0f,  25.0f,  0.0f, 1.0f, 0.0f,  25.0f,  0.0f,
-	-25.0f, -2.0f, -25.0f,  0.0f, 1.0f, 0.0f,   0.0f, 25.0f,
-	 25.0f, -2.0f, -25.0f,  0.0f, 1.0f, 0.0f,  25.0f, 25.0f
-};
+unsigned int generateLightConeVAO()
+{
+	std::vector<float> vertices;
+	const int segments = 72;
+	const float bottomRadius = 3.8f;
+	const float topRadius = 0.3f; // [物理基准] 真实的灯罩面板半径
+	const float height = -9.0f;
+
+	glm::vec3 topCenter(0.0f, 0.0f, 0.0f);
+
+	for (int i = 0; i < segments; ++i)
+	{
+		float angle1 = ((float)i / segments) * 2.0f * 3.1415926535f;
+		float angle2 = ((float)(i + 1) / segments) * 2.0f * 3.1415926535f;
+
+		glm::vec3 b1(cos(angle1) * bottomRadius, height, sin(angle1) * bottomRadius);
+		glm::vec3 b2(cos(angle2) * bottomRadius, height, sin(angle2) * bottomRadius);
+		glm::vec3 t1(cos(angle1) * topRadius, 0.0f, sin(angle1) * topRadius);
+		glm::vec3 t2(cos(angle2) * topRadius, 0.0f, sin(angle2) * topRadius);
+
+		// 侧面圆台壁 (严谨的 CCW 逆时针，配合 Cull Front 食用)
+		vertices.push_back(t1.x); vertices.push_back(t1.y); vertices.push_back(t1.z);
+		vertices.push_back(b2.x); vertices.push_back(b2.y); vertices.push_back(b2.z);
+		vertices.push_back(b1.x); vertices.push_back(b1.y); vertices.push_back(b1.z);
+
+		vertices.push_back(t1.x); vertices.push_back(t1.y); vertices.push_back(t1.z);
+		vertices.push_back(t2.x); vertices.push_back(t2.y); vertices.push_back(t2.z);
+		vertices.push_back(b2.x); vertices.push_back(b2.y); vertices.push_back(b2.z);
+
+		// [封死黑洞] 正反双面压入顶盖，不管怎么走、怎么看，盖子都在！
+		vertices.push_back(topCenter.x); vertices.push_back(topCenter.y); vertices.push_back(topCenter.z);
+		vertices.push_back(t1.x); vertices.push_back(t1.y); vertices.push_back(t1.z);
+		vertices.push_back(t2.x); vertices.push_back(t2.y); vertices.push_back(t2.z);
+
+		vertices.push_back(topCenter.x); vertices.push_back(topCenter.y); vertices.push_back(topCenter.z);
+		vertices.push_back(t2.x); vertices.push_back(t2.y); vertices.push_back(t2.z);
+		vertices.push_back(t1.x); vertices.push_back(t1.y); vertices.push_back(t1.z);
+	}
+
+	unsigned int VAO, VBO;
+	glGenVertexArrays(1, &VAO);
+	glGenBuffers(1, &VBO);
+
+	glBindVertexArray(VAO);
+	glBindBuffer(GL_ARRAY_BUFFER, VBO);
+	glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_STATIC_DRAW);
+
+	glEnableVertexAttribArray(0);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+
+	glBindVertexArray(0);
+	return VAO;
+}

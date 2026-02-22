@@ -31,6 +31,8 @@ set(SHADER_FILES
     "assets/shaders/particle.frag"
     "assets/shaders/ground.vert"
     "assets/shaders/ground.frag"
+    "assets/shaders/lightcone.vert"
+    "assets/shaders/lightcone.frag"
 )
 
 
