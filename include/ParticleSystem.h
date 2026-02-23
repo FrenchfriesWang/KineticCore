@@ -12,7 +12,7 @@ public:
     ParticleSystem(Shader& shader, unsigned int amount);
 
     // 只需要传入 delta time 和相机的 XZ 坐标
-    void Update(float dt, glm::vec2 cameraPos);
+    void Update(float dt, glm::vec2 cameraPos, glm::vec3 windVelocity);
     void Draw(glm::vec3 cameraPos);
 
 private:

@@ -196,18 +196,16 @@ int main()
 
 		// --- 2. 渲染地面 (PBR Wetness) ---
 		groundShader->use();
-		groundShader->setFloat("time", static_cast<float>(glfwGetTime()));
+		groundShader->setFloat("time", currentFrame);
 		groundShader->setMat4("projection", projection);
 		groundShader->setMat4("view", view);
 		groundShader->setMat4("model", model);
 
-		// 设置光照与湿润参数
 		groundShader->setVec3("viewPos", camera.Position);
 		groundShader->setVec3("lightPos", glm::vec3(0.0f, 9.0f, 0.0f));
 		groundShader->setVec3("lightColor", glm::vec3(0.8f, 0.9f, 1.0f) * 4.5f);
-		groundShader->setFloat("wetness", 0.45f); 
+		groundShader->setFloat("wetness", 0.45f);
 
-		// 绑定纹理
 		glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, groundDiff);
 		glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, groundNorm);
 		glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, groundRough);
@@ -220,52 +218,53 @@ int main()
 
 		// --- 3. 渲染粒子 (Transparent Object 放在最后) ---
 		glDepthMask(GL_FALSE);
-		// 激活着色器
 		shader->use();
 		shader->setInt("particleTexture", 0);
-		// 设置摄像机矩阵
+
+		// 传递体积光参数
+		shader->setVec3("lightPos", glm::vec3(0.0f, 9.0f, 0.0f));
+		shader->setFloat("coneHeight", 9.0f);
+		shader->setFloat("coneBottomRadius", 3.8f);
+		shader->setFloat("coneTopRadius", 0.3f);
+		shader->setVec3("lightColor", glm::vec3(0.8f, 0.9f, 1.0f) * 4.5f);
+		shader->setFloat("time", currentFrame);
+
 		shader->setMat4("projection", projection);
 		shader->setMat4("view", view);
 
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, textureID);
 
+		// --- [核心：动态微风系统计算] ---
+		// 缓慢游荡的自然微风，消除单向台风感
+		float windTime = currentFrame * 0.4f;
+		float windX = sin(windTime) * 2.5f + cos(windTime * 0.3f) * 1.5f;
+		float windZ = cos(windTime * 0.7f) * 2.0f + sin(windTime * 0.2f) * 1.0f;
+		glm::vec3 windVelocity = glm::vec3(windX, 0.0f, windZ);
 
-		// 传递 Camera XZ 坐标以实现跟随
-		// [重要] 分离更新与渲染
-		// ParticleSystem::Update 和 Draw 还是耦合在一起的 (都在 Update 里或者混着)
-		// 这一步我们先把调用方式改得像样一点，下一阶段再去拆解 ParticleSystem 类
+		// 传给 Shader
+		shader->setVec3("globalWind", windVelocity);
 
-		// 这里的 offset 暂时没用，先传个 0
-		particleSystem->Update(deltaTime, glm::vec2(camera.Position.x, camera.Position.z));
-		particleSystem->Draw(camera.Position); // 这一步在你的类里虽然包含在Update里了，但为了语义清晰，以后要拆出来
-
-
-
+		// 干净利落的一次更新，一次绘制！
+		particleSystem->Update(deltaTime, glm::vec2(camera.Position.x, camera.Position.z), windVelocity);
+		particleSystem->Draw(camera.Position);
 
 		// --- 4. 渲染体积光锥 (Additive Blending) ---
-		// 开启叠加混合模式：源颜色 * 源Alpha + 目标颜色 * 1
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE);
-		// 【关键】关闭深度写入！让光锥不要遮挡任何后面的东西，彻底告别 z-fighting 和奇怪的深度剔除
 		glDepthMask(GL_FALSE);
-
-		// [修改这里] 开启背面剔除，只看前面，彻底消灭多层重影！
 		glEnable(GL_CULL_FACE);
-		glCullFace(GL_FRONT); // 只渲染内侧，彻底消灭重影
-
+		glCullFace(GL_FRONT);
 
 		coneShader->use();
 		coneShader->setMat4("projection", projection);
 		coneShader->setMat4("view", view);
-		coneShader->setFloat("time", static_cast<float>(glfwGetTime()));
+		coneShader->setFloat("time", currentFrame);
 
-		// 把模型矩阵平移到路灯真实的世界坐标 (0, 5, -4)
 		glm::mat4 coneModel = glm::mat4(1.0f);
-		coneModel = glm::translate(coneModel, glm::vec3(0.0f, 9.0f, 0.0f)); // 模型平移到 7.5米
+		coneModel = glm::translate(coneModel, glm::vec3(0.0f, 9.0f, 0.0f));
 		coneShader->setMat4("model", coneModel);
 
 		coneShader->setVec3("lightPos", glm::vec3(0.0f, 9.0f, 0.0f));
-		// 这里颜色再乘以一个系数，你可以自己调，控制体积光的浑浊度
 		coneShader->setVec3("lightColor", glm::vec3(0.8f, 0.9f, 1.0f) * 1.5f);
 		coneShader->setVec3("cameraPos", camera.Position);
 
@@ -273,13 +272,10 @@ int main()
 		glDrawArrays(GL_TRIANGLES, 0, 72 * 12);
 		glBindVertexArray(0);
 
-		// --- 恢复渲染状态 (这步极其重要，不要影响下一帧) ---
+		// --- 恢复渲染状态 ---
 		glDepthMask(GL_TRUE);
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 		glCullFace(GL_BACK);
-
-
-
 
 		// 交换缓冲 & 轮询事件
 		glfwSwapBuffers(window);

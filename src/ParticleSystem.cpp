@@ -65,25 +65,26 @@ void ParticleSystem::init()
     glBindVertexArray(0);
 }
 
-void ParticleSystem::Update(float dt, glm::vec2 cameraPos)
+void ParticleSystem::Update(float dt, glm::vec2 cameraPos, glm::vec3 windVelocity)
 {
-    // --- [核弹级优化] 一个没有任何 if-else 分支的纯计算循环 ---
-    // 现代 CPU 最喜欢这种内存连续、无逻辑分支的循环，极其疯狂的执行效率！
     for (unsigned int i = 0; i < amount; ++i)
     {
-        // 1. 物理更新 (向量加法)
-        particleRenderData[i].x += particleVelocities[i].x * dt;
+        // 1. 物理更新：基础垂直速度 + 外部风力推挤
+        particleRenderData[i].x += (particleVelocities[i].x + windVelocity.x) * dt;
         particleRenderData[i].y += particleVelocities[i].y * dt;
-        particleRenderData[i].z += particleVelocities[i].z * dt;
+        particleRenderData[i].z += (particleVelocities[i].z + windVelocity.z) * dt;
 
-        // 2. 无脑触地检测 (避免 if-else 分支的技巧是直接判断并重置)
+        // 2. 无脑触地检测
         if (particleRenderData[i].y < -2.0f)
         {
-            particleRenderData[i].y = 40.0f; // 回到高空
+            // [修复] 绝对随机的重生高度，彻底打碎虚线感！(不要加 cameraPos.y，那是 Z 坐标！)
+            particleRenderData[i].y = 40.0f + randomFloat(0.0f, 15.0f);
 
-            // 重新在相机周围随机分布，这样雨会一直跟着玩家走！
-            particleRenderData[i].x = cameraPos.x + randomFloat(-25.0f, 25.0f);
-            particleRenderData[i].z = cameraPos.y + randomFloat(-25.0f, 25.0f);
+            // [修复] vec2 只有 x 和 y！这里的 cameraPos.y 实际上就是 3D 世界的 Z！
+            particleRenderData[i].x = cameraPos.x + randomFloat(-30.0f, 30.0f);
+            particleRenderData[i].z = cameraPos.y + randomFloat(-30.0f, 30.0f);
+
+            particleVelocities[i].y = randomFloat(-30.0f, -45.0f);
         }
     }
 }
