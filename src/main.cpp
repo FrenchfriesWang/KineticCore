@@ -120,17 +120,15 @@ int main()
 		deltaTime = currentFrame - lastFrame;
 		lastFrame = currentFrame;
 
-		// 输入处理，并获取是否在移动
-		bool isMoving = processInput(window);
+		// --- 核心修改区：计算真实位移并修复两次输入的 Bug ---
 
-		// 更新音频系统 (传入移动状态和 deltaTime)
-		audioSystem->Update(isMoving, deltaTime);
-
-
-		// 输入处理
+		glm::vec3 oldPos = camera.Position;
 		processInput(window);
 
 		camera.UpdatePhysics(deltaTime);
+
+		glm::vec2 currentXZ(camera.Position.x, camera.Position.z);
+		audioSystem->Update(currentXZ);
 
 		// 清屏 (背景色设为深色，接近纯黑的虚空感)
 		glClearColor(0.05f, 0.05f, 0.05f, 1.0f);
@@ -175,23 +173,25 @@ bool processInput(GLFWwindow* window)
 	if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
 		glfwSetWindowShouldClose(window, true);
 
-	bool isMoving = false; // 标记位
+	// 收集输入方向
+	glm::vec2 inputDir(0.0f);
+	if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) inputDir.y += 1.0f; // 前
+	if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) inputDir.y -= 1.0f; // 后
+	if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) inputDir.x -= 1.0f; // 左
+	if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) inputDir.x += 1.0f; // 右
 
-	if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
-		camera.ProcessKeyboard(CameraMovement::FORWARD, deltaTime);
-		isMoving = true;
-	}
-	if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
-		camera.ProcessKeyboard(CameraMovement::BACKWARD, deltaTime);
-		isMoving = true;
-	}
-	if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) {
-		camera.ProcessKeyboard(CameraMovement::LEFT, deltaTime);
-		isMoving = true;
-	}
-	if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) {
-		camera.ProcessKeyboard(CameraMovement::RIGHT, deltaTime);
-		isMoving = true;
+	bool isMoving = (inputDir.x != 0.0f || inputDir.y != 0.0f);
+
+	if (isMoving) {
+		// [核心修复] 归一化输入向量，防止斜向移动速度变为 1.414 倍
+		inputDir = glm::normalize(inputDir);
+
+		// 手动拆分并调用，保持与原本 Camera 的接口兼容
+		// 注意：这里的 deltaTime 依然在内部乘了 MovementSpeed
+		if (inputDir.y > 0.0f) camera.ProcessKeyboard(CameraMovement::FORWARD, deltaTime * inputDir.y);
+		if (inputDir.y < 0.0f) camera.ProcessKeyboard(CameraMovement::BACKWARD, deltaTime * -inputDir.y);
+		if (inputDir.x < 0.0f) camera.ProcessKeyboard(CameraMovement::LEFT, deltaTime * -inputDir.x);
+		if (inputDir.x > 0.0f) camera.ProcessKeyboard(CameraMovement::RIGHT, deltaTime * inputDir.x);
 	}
 
 	return isMoving;

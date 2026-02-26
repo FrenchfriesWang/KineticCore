@@ -3,10 +3,8 @@
 #include <vector>
 #include <string>
 #include <random>
-
-// 确保 miniaudio.h 在你的 include 路径中
-// 如果找不到，请改为 "miniaudio.h" 或相对路径
-#include <miniaudio.h> 
+#include <miniaudio.h>
+#include <glm/glm.hpp> // 引入 glm 用于处理向量
 
 class AudioSystem {
 public:
@@ -14,20 +12,20 @@ public:
     ~AudioSystem();
 
     void PlayRain();
-    void Update(bool isMoving, float deltaTime);
+
+    // [修改] 直接传入玩家当前的 XZ 坐标
+    void Update(glm::vec2 currentPos);
 
 private:
     ma_engine engine;
     ma_sound rainSound;
-
-    // 使用 vector 存储声音对象
     std::vector<ma_sound> footstepSounds;
 
-    float footstepTimer;
-    float footstepInterval;
+    // [核心修改] 锚点法所需变量
+    glm::vec2 lastStepPos;
+    bool isFirstStep;
+    float stepDistance;
 
-    // 随机数生成器作为成员变量
     std::mt19937 rng;
-
     void PlayRandomFootstep();
 };
