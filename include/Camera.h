@@ -9,17 +9,19 @@ enum class CameraMovement {
     FORWARD,
     BACKWARD,
     LEFT,
-    RIGHT,
-    UP,
-    DOWN
+    RIGHT
 };
 
-// 默认参数配置 (工业级写法：集中管理常量)
+// 默认参数配置
 const float YAW = -90.0f;
 const float PITCH = 0.0f;
-  const float SPEED = 2.0f;
+const float SPEED = 1.2f; // [修改] 步伐调得极其沉重
 const float SENSITIVITY = 0.1f;
 const float ZOOM = 45.0f;
+
+// --- 氛围向物理约束 ---
+const float GROUND_HEIGHT = 1.7f; // 死锁的眼睛高度
+const float BOUNDARY_LIMIT = 9.5f; // 地面边界 (因为地面是 10x10)
 
 class Camera
 {
@@ -31,34 +33,27 @@ public:
     glm::vec3 Right;
     glm::vec3 WorldUp;
 
-    // --- 欧拉角 ---
     float Yaw;
     float Pitch;
-
-    // --- 选项 ---
     float MovementSpeed;
     float MouseSensitivity;
     float Zoom;
 
     // 构造函数
-    Camera(glm::vec3 position = glm::vec3(0.0f, 0.0f, 0.0f),
+    Camera(glm::vec3 position = glm::vec3(0.0f, GROUND_HEIGHT, 0.0f),
         glm::vec3 up = glm::vec3(0.0f, 1.0f, 0.0f),
         float yaw = YAW,
         float pitch = PITCH);
 
-    // 获取视图矩阵 (LookAt)
     glm::mat4 GetViewMatrix();
-
-    // 处理键盘输入
     void ProcessKeyboard(CameraMovement direction, float deltaTime);
 
-    // 处理鼠标移动
-    void ProcessMouseMovement(float xoffset, float yoffset, GLboolean constrainPitch = true);
+    // 用来处理空气墙边界和死锁高度
+    void UpdatePhysics(float deltaTime);
 
-    // 处理鼠标滚轮 (缩放)
+    void ProcessMouseMovement(float xoffset, float yoffset, GLboolean constrainPitch = true);
     void ProcessMouseScroll(float yoffset);
 
 private:
-    // 根据欧拉角计算 Front 向量
     void updateCameraVectors();
 };

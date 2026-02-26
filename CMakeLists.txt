@@ -12,27 +12,36 @@ set(SOURCE_FILES
     "src/main.cpp"
     "src/Shader.cpp"
     "src/Camera.cpp"
-    "src/ParticleSystem.cpp"
+    "src/Ground.cpp"
+    "src/LightCone.cpp"
+    "src/RainSystem.cpp"
+    "src/TextureUtils.cpp"
+    "src/AudioSystem.cpp"
     "vendor/glad/src/glad.c"
 )
 
 set(HEADER_FILES
     "include/Shader.h"
     "include/Camera.h"
-    "include/Particle.h"
-    "include/ParticleSystem.h"
+    "include/Raindrop.h"
+    "include/Ground.h"
+    "include/LightCone.h"
+    "include/RainSystem.h"
+    "include/TextureUtils.h"
+    "include/AudioSystem.h"
     "vendor/glad/include/glad/glad.h"
     "vendor/glad/include/KHR/khrplatform.h"
     "vendor/stb_image/stb_image.h"
+    "vendor/miniaudio/miniaudio.h"
 )
 
 set(SHADER_FILES
-    "assets/shaders/particle.vert"
-    "assets/shaders/particle.frag"
+    "assets/shaders/rain.vert"
+    "assets/shaders/rain.frag"
     "assets/shaders/ground.vert"
     "assets/shaders/ground.frag"
-    "assets/shaders/lightcone.vert"
-    "assets/shaders/lightcone.frag"
+    "assets/shaders/light_cone.vert"
+    "assets/shaders/light_cone.frag"
 )
 
 
@@ -57,6 +66,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     "${CMAKE_SOURCE_DIR}/vendor/glfw/include"
     "${CMAKE_SOURCE_DIR}/vendor/glm"
     "${CMAKE_SOURCE_DIR}/vendor/stb_image"
+    "${CMAKE_SOURCE_DIR}/vendor/miniaudio"
 )
 
 # 链接库
