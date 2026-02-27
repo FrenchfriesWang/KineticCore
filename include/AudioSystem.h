@@ -13,19 +13,15 @@ public:
 
     void PlayRain();
 
-    // [修改] 直接传入玩家当前的 XZ 坐标
-    void Update(glm::vec2 currentPos);
+    void PlayFootstep(bool isRunning);
 
 private:
     ma_engine engine;
     ma_sound rainSound;
-    std::vector<ma_sound> footstepSounds;
 
-    // [核心修改] 锚点法所需变量
-    glm::vec2 lastStepPos;
-    bool isFirstStep;
-    float stepDistance;
+    // [修改] 两个独立的音频池
+    std::vector<ma_sound> walkSounds;
+    std::vector<ma_sound> runSounds;
 
     std::mt19937 rng;
-    void PlayRandomFootstep();
 };

@@ -16,6 +16,7 @@ enum class CameraMovement {
 const float YAW = -90.0f;
 const float PITCH = 0.0f;
 const float SPEED = 1.8f; // [修改] 步伐调得极其沉重
+const float RUN_SPEED = 2.8f;
 const float SENSITIVITY = 0.1f;
 const float ZOOM = 45.0f;
 
@@ -54,6 +55,20 @@ public:
     void ProcessMouseMovement(float xoffset, float yoffset, GLboolean constrainPitch = true);
     void ProcessMouseScroll(float yoffset);
 
+    bool UpdateHeadBob(float distanceMoved, float deltaTime);
+
 private:
     void updateCameraVectors();
+
+    // [新增] 屏幕晃动参数
+    float bobPhase = 0.0f;
+    float bobAmplitudeX = 0.015f; // 左右微晃幅度 (1.5厘米)
+    float bobAmplitudeY = 0.03f;  // 上下起伏幅度 (3厘米)
+    float bobFrequency = 2.8f;    // 晃动频率系数，与步速完美契合
+    glm::vec3 currentBobOffset = glm::vec3(0.0f); // 当前帧的视觉偏移量
+
+    // [新增] 起伏与同步系统的参数
+    float totalBobDistance = 0.0f;
+    float stepDistance = 0.85f;    // 依然是这个步幅，统一写死在这里
+    float bobFade = 0.0f;          // 用近平滑过渡起停，防止突兀
 };

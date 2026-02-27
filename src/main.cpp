@@ -110,6 +110,10 @@ int main()
 	auto audioSystem = std::make_unique<AudioSystem>();
 	audioSystem->PlayRain();
 
+	// 记录上一次真实发出脚步声的物理 XZ 坐标 (锚点)
+	glm::vec2 lastFootprintPos(camera.Position.x, camera.Position.z);
+
+
 	// ------------------------------
 	// 5. 渲染循环
 	// ------------------------------
@@ -127,8 +131,30 @@ int main()
 
 		camera.UpdatePhysics(deltaTime);
 
-		glm::vec2 currentXZ(camera.Position.x, camera.Position.z);
-		audioSystem->Update(currentXZ);
+		// 计算物理移动真实距离
+		float distanceMoved = glm::distance(glm::vec2(oldPos.x, oldPos.z), glm::vec2(camera.Position.x, camera.Position.z));
+
+		// 让 Camera 计算起伏。如果算到刚刚好踩到底部，就会返回 true
+		bool stepTriggered = camera.UpdateHeadBob(distanceMoved, deltaTime);
+
+		if (stepTriggered) {
+			glm::vec2 currentXZ(camera.Position.x, camera.Position.z);
+
+			// 算一下：当前坐标离上一次发声的脚印，直线距离有没有超过 0.3 米？
+			// 0.3 米是一个非常安全的防抖阈值（正常一步大概 0.85 米，而 ADAD 抽搐通常在 0.1 米内）
+			if (glm::distance(currentXZ, lastFootprintPos) > 0.3f) {
+
+				// 根据当前的摄像机速度，判断是走路还是跑步
+				// (你可以根据你的需求微调这个 2.5f 的界限值)
+				bool isRunning = (camera.MovementSpeed > 2.5f);
+
+				audioSystem->PlayFootstep(isRunning);
+
+				// 声音成功发出，把锚点更新到当前脚下
+				lastFootprintPos = currentXZ;
+			}
+			// 如果没超过 0.3 米，就什么也不播，完美过滤掉原地抖动！
+		}
 
 		// 清屏 (背景色设为深色，接近纯黑的虚空感)
 		glClearColor(0.05f, 0.05f, 0.05f, 1.0f);
@@ -172,6 +198,14 @@ bool processInput(GLFWwindow* window)
 {
 	if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
 		glfwSetWindowShouldClose(window, true);
+
+	// Shift 奔跑逻辑：动态修改相机的移动速度
+	if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) {
+		camera.MovementSpeed = RUN_SPEED; // 奔跑速度 (大于我们设定的 2.5f 阈值，会自动触发 runSounds)
+	}
+	else {
+		camera.MovementSpeed = SPEED; // 正常走路速度
+	}
 
 	// 收集输入方向
 	glm::vec2 inputDir(0.0f);

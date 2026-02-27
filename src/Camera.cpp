@@ -15,7 +15,8 @@ Camera::Camera(glm::vec3 position, glm::vec3 up, float yaw, float pitch)
 
 glm::mat4 Camera::GetViewMatrix()
 {
-    return glm::lookAt(Position, Position + Front, Up);
+    glm::vec3 eye = Position + currentBobOffset;
+    return glm::lookAt(eye, eye + Front, Up);
 }
 
 void Camera::ProcessKeyboard(CameraMovement direction, float deltaTime)
@@ -76,4 +77,45 @@ void Camera::updateCameraVectors() {
     Front = glm::normalize(front);
     Right = glm::normalize(glm::cross(Front, WorldUp));
     Up = glm::normalize(glm::cross(Right, Front));
+}
+
+bool Camera::UpdateHeadBob(float distanceMoved, float deltaTime)
+{
+    bool triggeredStep = false;
+
+    if (distanceMoved > 0.001f) {
+        float oldDistance = totalBobDistance;
+        totalBobDistance += distanceMoved;
+
+        // [核心触发逻辑] 
+        // 使用 floor 检查是否跨越了 stepDistance 的整数倍。
+        // 不受帧率影响，绝不错漏！
+        if (floor(oldDistance / stepDistance) < floor(totalBobDistance / stepDistance)) {
+            triggeredStep = true;
+        }
+
+        // 走动时平滑进入起伏状态
+        bobFade = glm::min(bobFade + deltaTime * 5.0f, 1.0f);
+    }
+    else {
+        // 停下时平滑衰减，恢复正常高度，绝不瞬间反弹
+        bobFade = glm::max(bobFade - deltaTime * 5.0f, 0.0f);
+    }
+
+    // [核心数学曲线] 
+    // X轴完成一次左/右摇摆需要 2 步 (2 * stepDistance)
+    float xPhase = (totalBobDistance / stepDistance) * glm::pi<float>();
+    // Y轴完成一次起伏只需要 1 步 (1 * stepDistance)
+    float yPhase = (totalBobDistance / stepDistance) * 2.0f * glm::pi<float>();
+
+    // 使用 -cos 曲线。当 totalBobDistance 是 stepDistance 的整数倍时，
+    // yPhase 正好是 2PI 的整数倍。 -cos(2PI) = -1，即绝对的最低点！
+    // 刚好与上面的 triggeredStep 完美卡在同一帧！
+    float targetX = sin(xPhase) * 0.015f;
+    float targetY = -cos(yPhase) * 0.035f;
+
+    currentBobOffset.x = targetX * bobFade;
+    currentBobOffset.y = targetY * bobFade;
+
+    return triggeredStep;
 }
