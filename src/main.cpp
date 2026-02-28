@@ -100,7 +100,7 @@ int main()
 	// ------------------------------
 
     // 使用 std::unique_ptr 管理 Shader
-	unsigned int rainTextureID = generateRaindropTexture(); // 假设你改了这个函数名
+	unsigned int rainTextureID = generateRaindropTexture();
 	auto rainSystem = std::make_unique<RainSystem>(25000, rainTextureID);
 
 	auto ground = std::make_unique<Ground>();
@@ -112,7 +112,7 @@ int main()
 
 	// 记录上一次真实发出脚步声的物理 XZ 坐标 (锚点)
 	glm::vec2 lastFootprintPos(camera.Position.x, camera.Position.z);
-
+	glm::vec3 accumulatedWindOffset(0.0f);
 
 	// ------------------------------
 	// 5. 渲染循环
@@ -169,12 +169,14 @@ int main()
 
 		// --- 3. 渲染粒子 (包含动态微风计算) ---
 		float windTime = currentFrame * 0.4f;
-		float windX = sin(windTime) * 2.5f + cos(windTime * 0.3f) * 1.5f;
-		float windZ = cos(windTime * 0.7f) * 2.0f + sin(windTime * 0.2f) * 1.0f;
-		glm::vec3 windVelocity = glm::vec3(windX, 0.0f, windZ);
+		float windX = sin(windTime * 0.5f) * 3.5f + cos(windTime * 0.2f) * 0.8f;
+		float windZ = cos(windTime * 0.3f) * 1.0f;
+		glm::vec3 currentWindVelocity = glm::vec3(windX, 0.0f, windZ);
+		accumulatedWindOffset += currentWindVelocity * deltaTime;
 
-		rainSystem->Update(deltaTime, glm::vec2(camera.Position.x, camera.Position.z), windVelocity);
-		rainSystem->Draw(view, projection, camera.Position, currentFrame, glm::vec3(0.0f, 9.0f, 0.0f), glm::vec3(0.8f, 0.9f, 1.0f) * 4.5f, windVelocity);
+		rainSystem->Draw(view, projection, camera.Position, currentFrame,
+			glm::vec3(0.0f, 9.0f, 0.0f), glm::vec3(0.8f, 0.9f, 1.0f) * 4.5f,
+			accumulatedWindOffset, currentWindVelocity);
 
 		// --- 4. 渲染体积光锥 (Additive Blending) ---
 		lightCone->Draw(view, projection, currentFrame, camera.Position);

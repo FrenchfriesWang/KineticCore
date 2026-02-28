@@ -42,38 +42,18 @@ void RainSystem::init()
     glEnableVertexAttribArray(0); glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
 
     glBindBuffer(GL_ARRAY_BUFFER, this->instanceVBO);
-    glBufferData(GL_ARRAY_BUFFER, amount * sizeof(glm::vec4), NULL, GL_DYNAMIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, amount * sizeof(glm::vec4), particleRenderData.data(), GL_STATIC_DRAW);
     glEnableVertexAttribArray(2); glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, sizeof(glm::vec4), (void*)0);
     glVertexAttribDivisor(2, 1);
     glBindVertexArray(0);
 }
 
-void RainSystem::Update(float dt, glm::vec2 cameraPos, glm::vec3 windVelocity)
-{
-    for (unsigned int i = 0; i < amount; ++i)
-    {
-        particleRenderData[i].x += (particleVelocities[i].x + windVelocity.x) * dt;
-        particleRenderData[i].y += particleVelocities[i].y * dt;
-        particleRenderData[i].z += (particleVelocities[i].z + windVelocity.z) * dt;
-
-        if (particleRenderData[i].y < -2.0f)
-        {
-            particleRenderData[i].y = 40.0f + randomFloat(0.0f, 15.0f);
-            particleRenderData[i].x = cameraPos.x + randomFloat(-30.0f, 30.0f);
-            particleRenderData[i].z = cameraPos.y + randomFloat(-30.0f, 30.0f);
-            particleVelocities[i].y = randomFloat(-30.0f, -45.0f);
-        }
-    }
-}
 
 void RainSystem::Draw(const glm::mat4& view, const glm::mat4& projection,
     const glm::vec3& cameraPos, float time,
     const glm::vec3& lightPos, const glm::vec3& lightColor,
-    const glm::vec3& globalWind)
+    const glm::vec3& windOffset, const glm::vec3& windVelocity)
 {
-    glBindBuffer(GL_ARRAY_BUFFER, this->instanceVBO);
-    glBufferSubData(GL_ARRAY_BUFFER, 0, amount * sizeof(glm::vec4), particleRenderData.data());
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
 
     glDepthMask(GL_FALSE);
 
@@ -84,7 +64,8 @@ void RainSystem::Draw(const glm::mat4& view, const glm::mat4& projection,
     this->shader->setMat4("view", view);
     this->shader->setFloat("time", time);
     this->shader->setVec3("cameraPos", cameraPos);
-    this->shader->setVec3("globalWind", globalWind);
+    this->shader->setVec3("windOffset", windOffset);
+    this->shader->setVec3("windVelocity", windVelocity);
 
     this->shader->setVec3("lightPos", lightPos);
     this->shader->setFloat("coneHeight", 9.0f);

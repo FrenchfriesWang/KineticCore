@@ -39,7 +39,7 @@ void main()
     // 透明度：解决“太粗”的元凶！
     // 把 5.0 倍的膨胀砍掉，只给 1.3 倍的微弱提亮。
     // 这样雨滴的渐变边缘依然柔和，绝对不会变胖，只会显得核心高光更锐利了一点点。
-    float insideAlpha = texColor.a * 1.7; 
+    float insideAlpha = texColor.a * 1.3; 
 
     // --- 4. 最终平滑混合 ---
     vec3 finalColor = mix(baseColor, insideColor, coneMask);
